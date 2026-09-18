@@ -42,10 +42,37 @@ func migrate(db *sql.DB) error {
 		lng REAL NOT NULL,
 		visited_date TEXT,
 		notes TEXT,
+		image_url TEXT,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_places_user_id ON places(user_id);
 	`)
+	if err != nil {
+		return err
+	}
+	return addColumnIfMissing(db, "places", "image_url", "TEXT")
+}
+
+// addColumnIfMissing keeps databases created before a column existed usable.
+func addColumnIfMissing(db *sql.DB, table, column, decl string) error {
+	rows, err := db.Query(`SELECT name FROM pragma_table_info(?)`, table)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return err
+		}
+		if name == column {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_, err = db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + decl)
 	return err
 }

@@ -11,6 +11,7 @@ type server struct {
 	db        *sql.DB
 	jwtSecret []byte
 	origin    string
+	uploadDir string
 }
 
 func main() {
@@ -18,6 +19,7 @@ func main() {
 	port := getenv("PORT", "8080")
 	origin := getenv("FRONTEND_ORIGIN", "http://localhost:3000")
 	secret := getenv("JWT_SECRET", "dev-secret-change-me")
+	uploadDir := getenv("UPLOAD_DIR", "./uploads")
 
 	db, err := openDB(dbPath)
 	if err != nil {
@@ -25,7 +27,7 @@ func main() {
 	}
 	defer db.Close()
 
-	s := &server{db: db, jwtSecret: []byte(secret), origin: origin}
+	s := &server{db: db, jwtSecret: []byte(secret), origin: origin, uploadDir: uploadDir}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/auth/register", s.handleRegister)
@@ -35,7 +37,11 @@ func main() {
 
 	mux.HandleFunc("GET /api/places", s.requireAuth(s.handleListPlaces))
 	mux.HandleFunc("POST /api/places", s.requireAuth(s.handleCreatePlace))
+	mux.HandleFunc("PUT /api/places/{id}", s.requireAuth(s.handleUpdatePlace))
 	mux.HandleFunc("DELETE /api/places/{id}", s.requireAuth(s.handleDeletePlace))
+
+	mux.HandleFunc("POST /api/uploads", s.requireAuth(s.handleUpload))
+	mux.Handle("GET /uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir(uploadDir))))
 
 	log.Printf("travelmap backend listening on :%s", port)
 	if err := http.ListenAndServe(":"+port, s.withCORS(mux)); err != nil {

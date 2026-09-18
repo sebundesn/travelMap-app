@@ -11,13 +11,14 @@ type User struct {
 }
 
 type Place struct {
-	ID          int64   `json:"id"`
-	UserID      int64   `json:"-"`
-	Name        string  `json:"name"`
-	Country     string  `json:"country"`
-	Lat         float64 `json:"lat"`
-	Lng         float64 `json:"lng"`
-	VisitedDate *string `json:"visitedDate,omitempty"`
-	Notes       *string `json:"notes,omitempty"`
+	ID          int64     `json:"id"`
+	UserID      int64     `json:"-"`
+	Name        string    `json:"name"`
+	Country     string    `json:"country"`
+	Lat         float64   `json:"lat"`
+	Lng         float64   `json:"lng"`
+	VisitedDate *string   `json:"visitedDate,omitempty"`
+	Notes       *string   `json:"notes,omitempty"`
+	ImageURL    *string   `json:"imageUrl,omitempty"`
 	CreatedAt   time.Time `json:"createdAt"`
 }
