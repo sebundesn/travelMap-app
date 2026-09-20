@@ -17,8 +17,8 @@ func scanPublicUser(row interface{ Scan(...any) error }, u *PublicUser) error {
 func (s *server) loadUser(id int64) (User, error) {
 	var u User
 	err := s.db.QueryRow(
-		`SELECT id, email, name, handle, avatar_url, bio, created_at FROM users WHERE id = ?`, id,
-	).Scan(&u.ID, &u.Email, &u.Name, &u.Handle, &u.AvatarURL, &u.Bio, &u.CreatedAt)
+		`SELECT id, email, name, handle, avatar_url, bio, rank_public, created_at FROM users WHERE id = ?`, id,
+	).Scan(&u.ID, &u.Email, &u.Name, &u.Handle, &u.AvatarURL, &u.Bio, &u.RankPublic, &u.CreatedAt)
 	return u, err
 }
 
@@ -32,10 +32,11 @@ func (s *server) handleMe(w http.ResponseWriter, r *http.Request) {
 }
 
 type profileRequest struct {
-	Name      *string `json:"name"`
-	Handle    *string `json:"handle"`
-	AvatarURL *string `json:"avatarUrl"`
-	Bio       *string `json:"bio"`
+	Name       *string `json:"name"`
+	Handle     *string `json:"handle"`
+	AvatarURL  *string `json:"avatarUrl"`
+	Bio        *string `json:"bio"`
+	RankPublic *bool   `json:"rankPublic"`
 }
 
 // handleUpdateMe patches whichever profile fields the request carries.
@@ -95,6 +96,13 @@ func (s *server) handleUpdateMe(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if _, err := s.db.Exec(`UPDATE users SET bio = ? WHERE id = ?`, nullable(bio), userID); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to update profile")
+			return
+		}
+	}
+
+	if req.RankPublic != nil {
+		if _, err := s.db.Exec(`UPDATE users SET rank_public = ? WHERE id = ?`, *req.RankPublic, userID); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to update profile")
 			return
 		}

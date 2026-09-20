@@ -45,6 +45,9 @@ func main() {
 	mux.HandleFunc("POST /api/friends/requests/{id}/accept", s.requireAuth(s.handleAcceptFriendRequest))
 	mux.HandleFunc("DELETE /api/friends/requests/{id}", s.requireAuth(s.handleDeleteFriendRequest))
 
+	mux.HandleFunc("GET /api/stats", s.requireAuth(s.handleMyStats))
+	mux.HandleFunc("GET /api/rankings", s.requireAuth(s.handleRankings))
+
 	mux.HandleFunc("GET /api/places", s.requireAuth(s.handleListPlaces))
 	mux.HandleFunc("POST /api/places", s.requireAuth(s.handleCreatePlace))
 	mux.HandleFunc("PUT /api/places/{id}", s.requireAuth(s.handleUpdatePlace))

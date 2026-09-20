@@ -66,6 +66,14 @@ func migrate(db *sql.DB) error {
 	if err := addColumnIfMissing(db, "places", "image_url", "TEXT"); err != nil {
 		return err
 	}
+	for _, column := range []string{"country_code", "region"} {
+		if err := addColumnIfMissing(db, "places", column, "TEXT"); err != nil {
+			return err
+		}
+	}
+	if err := addColumnIfMissing(db, "users", "rank_public", "INTEGER NOT NULL DEFAULT 1"); err != nil {
+		return err
+	}
 	for _, column := range []string{"handle", "avatar_url", "bio"} {
 		if err := addColumnIfMissing(db, "users", column, "TEXT"); err != nil {
 			return err

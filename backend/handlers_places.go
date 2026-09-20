@@ -10,6 +10,8 @@ import (
 type placeRequest struct {
 	Name        string  `json:"name"`
 	Country     string  `json:"country"`
+	CountryCode *string `json:"countryCode"`
+	Region      *string `json:"region"`
 	Lat         float64 `json:"lat"`
 	Lng         float64 `json:"lng"`
 	VisitedDate *string `json:"visitedDate"`
@@ -17,10 +19,10 @@ type placeRequest struct {
 	ImageURL    *string `json:"imageUrl"`
 }
 
-const placeColumns = `id, name, country, lat, lng, visited_date, notes, image_url, created_at`
+const placeColumns = `id, name, country, country_code, region, lat, lng, visited_date, notes, image_url, created_at`
 
 func scanPlace(row interface{ Scan(...any) error }, p *Place) error {
-	return row.Scan(&p.ID, &p.Name, &p.Country, &p.Lat, &p.Lng, &p.VisitedDate, &p.Notes, &p.ImageURL, &p.CreatedAt)
+	return row.Scan(&p.ID, &p.Name, &p.Country, &p.CountryCode, &p.Region, &p.Lat, &p.Lng, &p.VisitedDate, &p.Notes, &p.ImageURL, &p.CreatedAt)
 }
 
 func (s *server) handleListPlaces(w http.ResponseWriter, r *http.Request) {
@@ -46,6 +48,29 @@ func (s *server) handleListPlaces(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, places)
 }
 
+// cleanCountryCode keeps only a well-formed ISO 3166-1 alpha-2 code, upper-cased.
+func cleanCountryCode(raw *string) *string {
+	if raw == nil {
+		return nil
+	}
+	code := strings.ToUpper(strings.TrimSpace(*raw))
+	if len(code) != 2 || code[0] < 'A' || code[0] > 'Z' || code[1] < 'A' || code[1] > 'Z' {
+		return nil
+	}
+	return &code
+}
+
+func cleanRegion(raw *string) *string {
+	if raw == nil {
+		return nil
+	}
+	region := strings.TrimSpace(*raw)
+	if region == "" {
+		return nil
+	}
+	return &region
+}
+
 func decodePlaceRequest(w http.ResponseWriter, r *http.Request) (placeRequest, bool) {
 	var req placeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -54,6 +79,8 @@ func decodePlaceRequest(w http.ResponseWriter, r *http.Request) (placeRequest, b
 	}
 	req.Name = strings.TrimSpace(req.Name)
 	req.Country = strings.TrimSpace(req.Country)
+	req.CountryCode = cleanCountryCode(req.CountryCode)
+	req.Region = cleanRegion(req.Region)
 	if req.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return req, false
@@ -73,9 +100,9 @@ func (s *server) handleCreatePlace(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res, err := s.db.Exec(
-		`INSERT INTO places (user_id, name, country, lat, lng, visited_date, notes, image_url)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		userID, req.Name, req.Country, req.Lat, req.Lng, req.VisitedDate, req.Notes, req.ImageURL,
+		`INSERT INTO places (user_id, name, country, country_code, region, lat, lng, visited_date, notes, image_url)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		userID, req.Name, req.Country, req.CountryCode, req.Region, req.Lat, req.Lng, req.VisitedDate, req.Notes, req.ImageURL,
 	)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save place")
@@ -100,9 +127,10 @@ func (s *server) handleUpdatePlace(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res, err := s.db.Exec(
-		`UPDATE places SET name = ?, country = ?, visited_date = ?, notes = ?, image_url = ?
+		`UPDATE places SET name = ?, country = ?, country_code = COALESCE(?, country_code),
+		        region = COALESCE(?, region), visited_date = ?, notes = ?, image_url = ?
 		 WHERE id = ? AND user_id = ?`,
-		req.Name, req.Country, req.VisitedDate, req.Notes, req.ImageURL, id, userID,
+		req.Name, req.Country, req.CountryCode, req.Region, req.VisitedDate, req.Notes, req.ImageURL, id, userID,
 	)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update place")
