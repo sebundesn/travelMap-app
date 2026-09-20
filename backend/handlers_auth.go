@@ -41,9 +41,15 @@ func (s *server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	handle, err := generateHandle(s.db, req.Name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create account")
+		return
+	}
+
 	res, err := s.db.Exec(
-		`INSERT INTO users (email, password_hash, name) VALUES (?, ?, ?)`,
-		req.Email, hash, req.Name,
+		`INSERT INTO users (email, password_hash, name, handle) VALUES (?, ?, ?, ?)`,
+		req.Email, hash, req.Name, handle,
 	)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
@@ -59,9 +65,12 @@ func (s *server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to start session")
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]interface{}{
-		"id": userID, "email": req.Email, "name": req.Name,
-	})
+	u, err := s.loadUser(userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "created but failed to load profile")
+		return
+	}
+	writeJSON(w, http.StatusCreated, u)
 }
 
 func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -74,8 +83,8 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	var u User
 	err := s.db.QueryRow(
-		`SELECT id, email, name, password_hash FROM users WHERE email = ?`, req.Email,
-	).Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash)
+		`SELECT id, email, name, handle, avatar_url, bio, password_hash FROM users WHERE email = ?`, req.Email,
+	).Scan(&u.ID, &u.Email, &u.Name, &u.Handle, &u.AvatarURL, &u.Bio, &u.PasswordHash)
 	if err == sql.ErrNoRows || (err == nil && !checkPassword(u.PasswordHash, req.Password)) {
 		writeError(w, http.StatusUnauthorized, "invalid email or password")
 		return
@@ -89,26 +98,10 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to start session")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"id": u.ID, "email": u.Email, "name": u.Name,
-	})
+	writeJSON(w, http.StatusOK, u)
 }
 
 func (s *server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	s.clearSession(w)
 	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *server) handleMe(w http.ResponseWriter, r *http.Request) {
-	id := currentUserID(r)
-	var u User
-	err := s.db.QueryRow(`SELECT id, email, name FROM users WHERE id = ?`, id).
-		Scan(&u.ID, &u.Email, &u.Name)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "user not found")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"id": u.ID, "email": u.Email, "name": u.Name,
-	})
 }

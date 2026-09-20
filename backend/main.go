@@ -34,6 +34,16 @@ func main() {
 	mux.HandleFunc("POST /api/auth/login", s.handleLogin)
 	mux.HandleFunc("POST /api/auth/logout", s.handleLogout)
 	mux.HandleFunc("GET /api/me", s.requireAuth(s.handleMe))
+	mux.HandleFunc("PATCH /api/me", s.requireAuth(s.handleUpdateMe))
+	mux.HandleFunc("GET /api/users/{handle}", s.requireAuth(s.handleLookupUser))
+
+	mux.HandleFunc("GET /api/friends", s.requireAuth(s.handleListFriends))
+	mux.HandleFunc("DELETE /api/friends/{id}", s.requireAuth(s.handleRemoveFriend))
+	mux.HandleFunc("GET /api/friends/places", s.requireAuth(s.handleListFriendPlaces))
+	mux.HandleFunc("GET /api/friends/requests", s.requireAuth(s.handleListFriendRequests))
+	mux.HandleFunc("POST /api/friends/requests", s.requireAuth(s.handleCreateFriendRequest))
+	mux.HandleFunc("POST /api/friends/requests/{id}/accept", s.requireAuth(s.handleAcceptFriendRequest))
+	mux.HandleFunc("DELETE /api/friends/requests/{id}", s.requireAuth(s.handleDeleteFriendRequest))
 
 	mux.HandleFunc("GET /api/places", s.requireAuth(s.handleListPlaces))
 	mux.HandleFunc("POST /api/places", s.requireAuth(s.handleCreatePlace))
@@ -53,7 +63,7 @@ func (s *server) withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", s.origin)
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
