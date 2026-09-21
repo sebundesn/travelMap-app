@@ -37,10 +37,10 @@ type FriendRequest struct {
 	CreatedAt time.Time  `json:"createdAt"`
 }
 
-// FriendPlace is a friend's pin, carrying whose map it came from.
-type FriendPlace struct {
-	Place
-	Owner PublicUser `json:"owner"`
+// Media is one photo or short video attached to a place.
+type Media struct {
+	URL  string `json:"url"`
+	Kind string `json:"kind"`
 }
 
 type Place struct {
@@ -54,6 +54,6 @@ type Place struct {
 	Lng         float64   `json:"lng"`
 	VisitedDate *string   `json:"visitedDate,omitempty"`
 	Notes       *string   `json:"notes,omitempty"`
-	ImageURL    *string   `json:"imageUrl,omitempty"`
+	Media       []Media   `json:"media"`
 	CreatedAt   time.Time `json:"createdAt"`
 }

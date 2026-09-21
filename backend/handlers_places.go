@@ -16,13 +16,15 @@ type placeRequest struct {
 	Lng         float64 `json:"lng"`
 	VisitedDate *string `json:"visitedDate"`
 	Notes       *string `json:"notes"`
-	ImageURL    *string `json:"imageUrl"`
+	Media       []Media `json:"media"`
 }
 
-const placeColumns = `id, name, country, country_code, region, lat, lng, visited_date, notes, image_url, created_at`
+const maxMediaPerPlace = 30
+
+const placeColumns = `id, name, country, country_code, region, lat, lng, visited_date, notes, created_at`
 
 func scanPlace(row interface{ Scan(...any) error }, p *Place) error {
-	return row.Scan(&p.ID, &p.Name, &p.Country, &p.CountryCode, &p.Region, &p.Lat, &p.Lng, &p.VisitedDate, &p.Notes, &p.ImageURL, &p.CreatedAt)
+	return row.Scan(&p.ID, &p.Name, &p.Country, &p.CountryCode, &p.Region, &p.Lat, &p.Lng, &p.VisitedDate, &p.Notes, &p.CreatedAt)
 }
 
 func (s *server) handleListPlaces(w http.ResponseWriter, r *http.Request) {
@@ -45,7 +47,96 @@ func (s *server) handleListPlaces(w http.ResponseWriter, r *http.Request) {
 		}
 		places = append(places, p)
 	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read places")
+		return
+	}
+	if err := s.attachMedia(userID, places); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load media")
+		return
+	}
 	writeJSON(w, http.StatusOK, places)
+}
+
+// attachMedia fills in the album of every place in one query.
+func (s *server) attachMedia(userID int64, places []Place) error {
+	for i := range places {
+		places[i].Media = []Media{}
+	}
+	if len(places) == 0 {
+		return nil
+	}
+	rows, err := s.db.Query(
+		`SELECT m.place_id, m.url, m.kind FROM place_media m
+		 JOIN places p ON p.id = m.place_id
+		 WHERE p.user_id = ? ORDER BY m.position, m.id`, userID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	index := make(map[int64]int, len(places))
+	for i, p := range places {
+		index[p.ID] = i
+	}
+	for rows.Next() {
+		var placeID int64
+		var m Media
+		if err := rows.Scan(&placeID, &m.URL, &m.Kind); err != nil {
+			return err
+		}
+		if i, ok := index[placeID]; ok {
+			places[i].Media = append(places[i].Media, m)
+		}
+	}
+	return rows.Err()
+}
+
+// cleanMedia keeps only files this server stored, in order, capped per place.
+func cleanMedia(raw []Media) []Media {
+	clean := make([]Media, 0, len(raw))
+	for _, m := range raw {
+		if !strings.HasPrefix(m.URL, "/uploads/") || strings.Contains(m.URL, "..") {
+			continue
+		}
+		if m.Kind != mediaImage && m.Kind != mediaVideo {
+			continue
+		}
+		clean = append(clean, m)
+		if len(clean) == maxMediaPerPlace {
+			break
+		}
+	}
+	return clean
+}
+
+// replaceMedia rewrites a place's album inside the caller's transaction.
+func replaceMedia(tx *sql.Tx, placeID int64, media []Media) error {
+	if _, err := tx.Exec(`DELETE FROM place_media WHERE place_id = ?`, placeID); err != nil {
+		return err
+	}
+	for i, m := range media {
+		if _, err := tx.Exec(
+			`INSERT INTO place_media (place_id, url, kind, position) VALUES (?, ?, ?, ?)`,
+			placeID, m.URL, m.Kind, i); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// loadPlace reads one place with its album.
+func (s *server) loadPlace(id, userID int64) (Place, error) {
+	var p Place
+	if err := scanPlace(s.db.QueryRow(
+		`SELECT `+placeColumns+` FROM places WHERE id = ? AND user_id = ?`, id, userID), &p); err != nil {
+		return p, err
+	}
+	one := []Place{p}
+	if err := s.attachMedia(userID, one); err != nil {
+		return p, err
+	}
+	return one[0], nil
 }
 
 // cleanCountryCode keeps only a well-formed ISO 3166-1 alpha-2 code, upper-cased.
@@ -81,6 +172,7 @@ func decodePlaceRequest(w http.ResponseWriter, r *http.Request) (placeRequest, b
 	req.Country = strings.TrimSpace(req.Country)
 	req.CountryCode = cleanCountryCode(req.CountryCode)
 	req.Region = cleanRegion(req.Region)
+	req.Media = cleanMedia(req.Media)
 	if req.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return req, false
@@ -99,19 +191,34 @@ func (s *server) handleCreatePlace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := s.db.Exec(
-		`INSERT INTO places (user_id, name, country, country_code, region, lat, lng, visited_date, notes, image_url)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		userID, req.Name, req.Country, req.CountryCode, req.Region, req.Lat, req.Lng, req.VisitedDate, req.Notes, req.ImageURL,
+	tx, err := s.db.Begin()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to save place")
+		return
+	}
+	defer tx.Rollback()
+
+	res, err := tx.Exec(
+		`INSERT INTO places (user_id, name, country, country_code, region, lat, lng, visited_date, notes)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		userID, req.Name, req.Country, req.CountryCode, req.Region, req.Lat, req.Lng, req.VisitedDate, req.Notes,
 	)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save place")
 		return
 	}
 	id, _ := res.LastInsertId()
+	if err := replaceMedia(tx, id, req.Media); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to save media")
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to save place")
+		return
+	}
 
-	var p Place
-	if err := scanPlace(s.db.QueryRow(`SELECT `+placeColumns+` FROM places WHERE id = ?`, id), &p); err != nil {
+	p, err := s.loadPlace(id, userID)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "saved but failed to load place")
 		return
 	}
@@ -120,17 +227,28 @@ func (s *server) handleCreatePlace(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleUpdatePlace(w http.ResponseWriter, r *http.Request) {
 	userID := currentUserID(r)
-	id := r.PathValue("id")
+	id, err := atoi(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid place id")
+		return
+	}
 	req, ok := decodePlaceRequest(w, r)
 	if !ok {
 		return
 	}
 
-	res, err := s.db.Exec(
+	tx, err := s.db.Begin()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update place")
+		return
+	}
+	defer tx.Rollback()
+
+	res, err := tx.Exec(
 		`UPDATE places SET name = ?, country = ?, country_code = COALESCE(?, country_code),
-		        region = COALESCE(?, region), visited_date = ?, notes = ?, image_url = ?
+		        region = COALESCE(?, region), visited_date = ?, notes = ?
 		 WHERE id = ? AND user_id = ?`,
-		req.Name, req.Country, req.CountryCode, req.Region, req.VisitedDate, req.Notes, req.ImageURL, id, userID,
+		req.Name, req.Country, req.CountryCode, req.Region, req.VisitedDate, req.Notes, id, userID,
 	)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update place")
@@ -140,9 +258,16 @@ func (s *server) handleUpdatePlace(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "place not found")
 		return
 	}
+	if err := replaceMedia(tx, id, req.Media); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to save media")
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update place")
+		return
+	}
 
-	var p Place
-	err = scanPlace(s.db.QueryRow(`SELECT `+placeColumns+` FROM places WHERE id = ? AND user_id = ?`, id, userID), &p)
+	p, err := s.loadPlace(id, userID)
 	if err == sql.ErrNoRows {
 		writeError(w, http.StatusNotFound, "place not found")
 		return
@@ -156,16 +281,34 @@ func (s *server) handleUpdatePlace(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleDeletePlace(w http.ResponseWriter, r *http.Request) {
 	userID := currentUserID(r)
-	id := r.PathValue("id")
+	id, err := atoi(r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid place id")
+		return
+	}
 
-	res, err := s.db.Exec(`DELETE FROM places WHERE id = ? AND user_id = ?`, id, userID)
+	tx, err := s.db.Begin()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete place")
 		return
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
+	defer tx.Rollback()
+
+	res, err := tx.Exec(`DELETE FROM places WHERE id = ? AND user_id = ?`, id, userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete place")
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
 		writeError(w, http.StatusNotFound, "place not found")
+		return
+	}
+	if _, err := tx.Exec(`DELETE FROM place_media WHERE place_id = ?`, id); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete place")
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete place")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
