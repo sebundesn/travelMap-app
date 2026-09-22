@@ -315,6 +315,8 @@ EC2コンソール → 対象インスタンス選択 → **接続 → Session M
 
 ## Part 7. アプリをデプロイする（手動）
 
+> ✅ CI/CDを組んだ場合、このPartの手動デプロイは [`CICD_SETUP.md`](./CICD_SETUP.md) のPart Bで置き換えられる（GitHub Actionsが自動でビルド・配信する）。ただし、CI/CDの前提として、ここで一度リポジトリをclone・`.env`作成までは済ませておく必要があるので、CI/CDを先にやる場合もこのPartの手順（`git clone`と`.env`作成部分）は実施すること。
+
 CI/CDを組むまでの間は、SSM Session Manager経由で手動デプロイする。
 
 ```bash
