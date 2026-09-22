@@ -9,7 +9,6 @@ import type { Place, PlaceHint, ResolvedLocation } from "@/lib/types";
 import Avatar from "@/components/Avatar";
 import BottomSheet from "@/components/BottomSheet";
 import PlaceSheet, { type PlaceValues, type SheetState } from "@/components/PlaceSheet";
-import PlaceStrip from "@/components/PlaceStrip";
 import { Loading } from "@/components/StatusView";
 
 const MapView = dynamic(() => import("@/components/MapView"), { ssr: false });
@@ -173,19 +172,25 @@ export default function Home() {
 
       <div className="map-overlay map-overlay-header">
         <Link href="/profile" className="profile-pill">
-          <Avatar name={user.name} avatarUrl={user.avatarUrl} />
+          <span className="profile-pill-avatar">
+            <Avatar name={user.name} avatarUrl={user.avatarUrl} />
+            {pending > 0 && <span className="badge badge-dot">{pending}</span>}
+          </span>
           <span className="profile-text">
             <strong>{user.name}</strong>
             <small>{places.length} spots ・ @{user.handle}</small>
           </span>
         </Link>
-        <Link href="/friends" className="round-btn" aria-label="友だち">
-          <span aria-hidden>👥</span>
-          {pending > 0 && <span className="badge badge-dot">{pending}</span>}
+        <Link href="/diary" className="round-btn" aria-label="旅日記">
+          <span aria-hidden>📖</span>
         </Link>
       </div>
 
-      <PlaceStrip places={places} onSelect={handlePlaceTap} hidden={sheetOpen} />
+      {places.length === 0 && (
+        <p className={`map-hint${sheetOpen ? " map-hint-hidden" : ""}`}>
+          地図をタップして、行った場所を記録しよう
+        </p>
+      )}
 
       {sheet && (
         <BottomSheet open={sheetOpen} onClose={closeSheet}>

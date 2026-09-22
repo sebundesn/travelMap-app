@@ -67,6 +67,8 @@ export type Place = {
   countryCode?: string | null;
   /** First-level administrative area from the geocoder, e.g. "東京都". */
   region?: string | null;
+  /** JIS code (1-47) for pins in Japan; absent abroad. */
+  prefecture?: number;
   lat: number;
   lng: number;
   visitedDate?: string | null;

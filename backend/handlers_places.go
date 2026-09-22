@@ -24,7 +24,13 @@ const maxMediaPerPlace = 30
 const placeColumns = `id, name, country, country_code, region, lat, lng, visited_date, notes, created_at`
 
 func scanPlace(row interface{ Scan(...any) error }, p *Place) error {
-	return row.Scan(&p.ID, &p.Name, &p.Country, &p.CountryCode, &p.Region, &p.Lat, &p.Lng, &p.VisitedDate, &p.Notes, &p.CreatedAt)
+	if err := row.Scan(&p.ID, &p.Name, &p.Country, &p.CountryCode, &p.Region, &p.Lat, &p.Lng, &p.VisitedDate, &p.Notes, &p.CreatedAt); err != nil {
+		return err
+	}
+	if p.CountryCode != nil && p.Region != nil {
+		p.Prefecture = prefectureFor(*p.CountryCode, *p.Region)
+	}
+	return nil
 }
 
 func (s *server) handleListPlaces(w http.ResponseWriter, r *http.Request) {

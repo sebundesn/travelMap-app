@@ -2,9 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { api, assetUrl } from "@/lib/api";
+import { formatDate } from "@/lib/format";
 import { compressImage } from "@/lib/image";
 import { MAX_VIDEO_SECONDS, isVideoFile, readVideoDuration } from "@/lib/media";
 import type { Media, MediaKind, Place, PlaceHint } from "@/lib/types";
+import DetailMedia from "./DetailMedia";
 
 export type PlaceValues = {
   name: string;
@@ -20,13 +22,6 @@ export type SheetState =
   | { mode: "create"; lat: number; lng: number }
   | { mode: "edit"; place: Place }
   | { mode: "detail"; place: Place };
-
-function formatDate(value?: string | null) {
-  if (!value) return null;
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
-  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
-}
 
 const MAX_MEDIA = 30;
 
@@ -286,31 +281,6 @@ function PlaceForm({
         </button>
       </div>
     </form>
-  );
-}
-
-function DetailMedia({ media, title }: { media: Media[]; title: string }) {
-  if (media.length === 0) return null;
-  return (
-    <>
-      <div className="detail-media">
-        {media.map((m) => {
-          const src = assetUrl(m.url);
-          if (!src) return null;
-          return (
-            <div key={m.url} className="detail-media-item">
-              {m.kind === "video" ? (
-                <video src={src} controls playsInline preload="metadata" />
-              ) : (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={src} alt={title} />
-              )}
-            </div>
-          );
-        })}
-      </div>
-      {media.length > 1 && <p className="detail-media-count">{media.length}件 ・ 横にスワイプ</p>}
-    </>
   );
 }
 

@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import Avatar from "@/components/Avatar";
-import QrCode from "@/components/QrCode";
+import FriendsPanel from "@/components/FriendsPanel";
+import { useSheet } from "@/components/useSheet";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
 import { compressImage } from "@/lib/image";
@@ -15,9 +16,15 @@ import { Loading } from "@/components/StatusView";
 function ProfileForm({
   user,
   onSave,
+  onCancel,
+  onSaved,
+  avatar,
 }: {
   user: User;
   onSave: (patch: ProfileInput) => Promise<User>;
+  onCancel: () => void;
+  onSaved: () => void;
+  avatar: React.ReactNode;
 }) {
   const [name, setName] = useState(user.name);
   const [handle, setHandle] = useState(user.handle);
@@ -25,7 +32,6 @@ function ProfileForm({
   const [rankPublic, setRankPublic] = useState(user.rankPublic);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [status, setStatus] = useState<string | null>(null);
 
   const dirty =
     name !== user.name ||
@@ -36,21 +42,20 @@ function ProfileForm({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    setStatus(null);
     setSaving(true);
     try {
       await onSave({ name: name.trim(), handle: handle.trim(), bio: bio.trim(), rankPublic });
-      setStatus("プロフィールを保存しました");
+      onSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : "保存できませんでした");
-    } finally {
       setSaving(false);
     }
   }
 
   return (
     <form className="card" onSubmit={handleSubmit}>
-      <h2 className="card-title">プロフィール設定</h2>
+      <h2 className="card-title">プロフィールを編集</h2>
+      <div className="avatar-slot">{avatar}</div>
       <label className="field">
         <span className="field-label">名前</span>
         <input value={name} onChange={(e) => setName(e.target.value)} maxLength={40} />
@@ -94,49 +99,36 @@ function ProfileForm({
       </label>
 
       {error && <p className="form-error">{error}</p>}
-      {status && !error && <p className="form-status">{status}</p>}
 
-      <button type="submit" className="btn btn-primary" disabled={saving || !dirty}>
-        {saving ? "保存中…" : "保存する"}
-      </button>
+      <div className="sheet-actions">
+        <button type="button" className="btn btn-ghost" onClick={onCancel} disabled={saving}>
+          キャンセル
+        </button>
+        <button type="submit" className="btn btn-primary" disabled={saving || !dirty}>
+          {saving ? "保存中…" : "保存する"}
+        </button>
+      </div>
     </form>
   );
 }
 
-export default function ProfilePage() {
+function ProfileScreen() {
   const { user, loading, logout, saveProfile } = useAuth();
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
+  const addSheet = useSheet();
 
+  const [editing, setEditing] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [note, setNote] = useState<{ text: string; bad?: boolean } | null>(null);
-  const [friendCount, setFriendCount] = useState<number | null>(null);
-  const [pending, setPending] = useState(0);
 
   useEffect(() => {
     if (!loading && !user) router.replace("/login");
   }, [loading, user, router]);
 
-  useEffect(() => {
-    if (!user) return;
-    api
-      .listFriends()
-      .then((f) => setFriendCount(f.length))
-      .catch(() => setFriendCount(null));
-    api
-      .listFriendRequests()
-      .then((r) => setPending(r.incoming.length))
-      .catch(() => setPending(0));
-  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
   if (loading || !user) {
     return <Loading />;
   }
-
-  const shareUrl =
-    typeof window === "undefined"
-      ? `@${user.handle}`
-      : `${window.location.origin}/friends?add=${user.handle}`;
 
   async function pickAvatar(file: File) {
     setNote(null);
@@ -155,14 +147,36 @@ export default function ProfilePage() {
     }
   }
 
-  async function copyId() {
-    try {
-      await navigator.clipboard.writeText(`@${user!.handle}`);
-      setNote({ text: "IDをコピーしました" });
-    } catch {
-      setNote({ text: "コピーできませんでした", bad: true });
-    }
-  }
+  const noteView = note && <p className={note.bad ? "form-error" : "form-status"}>{note.text}</p>;
+
+  const avatarEditor = (
+    <>
+      <button
+        type="button"
+        className="avatar-edit"
+        onClick={() => fileRef.current?.click()}
+        disabled={uploading}
+        aria-label="アイコンを変更"
+      >
+        <Avatar name={user.name} avatarUrl={user.avatarUrl} size={96} />
+        <span className="avatar-edit-badge" aria-hidden>
+          📷
+        </span>
+      </button>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) pickAvatar(file);
+          e.target.value = "";
+        }}
+      />
+      {noteView}
+    </>
+  );
 
   return (
     <div className="page">
@@ -171,94 +185,76 @@ export default function ProfilePage() {
           ←
         </Link>
         <h1>プロフィール</h1>
-        <button type="button" className="round-btn" onClick={() => logout()} aria-label="ログアウト">
-          ⏻
+        <button type="button" className="friend-add-btn" onClick={addSheet.show}>
+          <span aria-hidden>＋</span> FRIEND
         </button>
       </header>
 
       <div className="page-body">
-        <section className="card card-center">
-          <button
-            type="button"
-            className="avatar-edit"
-            onClick={() => fileRef.current?.click()}
-            disabled={uploading}
-            aria-label="アイコンを変更"
-          >
-            <Avatar name={user.name} avatarUrl={user.avatarUrl} size={96} />
-            <span className="avatar-edit-badge" aria-hidden>
-              📷
-            </span>
-          </button>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/*"
-            hidden
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) pickAvatar(file);
-              e.target.value = "";
+        {editing ? (
+          <ProfileForm
+            key={user.id}
+            user={user}
+            onSave={saveProfile}
+            onCancel={() => {
+              setNote(null);
+              setEditing(false);
             }}
+            onSaved={() => {
+              setNote({ text: "プロフィールを保存しました" });
+              setEditing(false);
+            }}
+            avatar={avatarEditor}
           />
-          <strong className="card-name">{user.name}</strong>
-          <span className="card-handle">@{user.handle}</span>
-          {user.bio && <p className="card-bio">{user.bio}</p>}
-          {note && (
-            <p className={note.bad ? "form-error" : "form-status"}>{note.text}</p>
-          )}
-        </section>
-
-        <section className="card">
-          <h2 className="card-title">マイQRコード</h2>
-          <p className="card-note">友だちにこのコードを読み取ってもらうと申請が届きます。</p>
-          <div className="qr-wrap">
-            <QrCode value={shareUrl} name={user.name} avatarUrl={user.avatarUrl} />
-          </div>
-          <div className="id-row">
-            <code>@{user.handle}</code>
-            <button type="button" className="chip" onClick={copyId}>
-              コピー
+        ) : (
+          <section className="card card-center">
+            <button
+              type="button"
+              className="card-edit-btn chip"
+              onClick={() => {
+                setNote(null);
+                setEditing(true);
+              }}
+            >
+              Edit
             </button>
-          </div>
-        </section>
+            <Avatar name={user.name} avatarUrl={user.avatarUrl} size={96} />
+            <strong className="card-name">{user.name}</strong>
+            <span className="card-handle">@{user.handle}</span>
+            {user.bio && <p className="card-bio">{user.bio}</p>}
+            {noteView}
+          </section>
+        )}
 
-        <Link href="/stats" className="card card-link">
+        <FriendsPanel
+          sheetMounted={addSheet.mounted}
+          sheetOpen={addSheet.open}
+          onSheetOpen={addSheet.show}
+          onSheetClose={addSheet.hide}
+        />
+
+        <Link href="/diary" className="card card-link">
           <span className="card-link-text">
-            <strong>旅の記録</strong>
-            <small>制覇した国・都道府県・総移動距離</small>
+            <strong>旅日記</strong>
+            <small>旅の記録・ランキング</small>
           </span>
           <span className="card-link-arrow" aria-hidden>
             ›
           </span>
         </Link>
 
-        <Link href="/ranking" className="card card-link">
-          <span className="card-link-text">
-            <strong>ランキング</strong>
-            <small>友だち・世界のなかで何位？</small>
-          </span>
-          <span className="card-link-arrow" aria-hidden>
-            ›
-          </span>
-        </Link>
-
-        <Link href="/friends" className="card card-link">
-          <span className="card-link-text">
-            <strong>友だち</strong>
-            <small>
-              {friendCount === null ? "—" : `${friendCount}人`}
-              {pending > 0 && ` ・ 申請 ${pending}件`}
-            </small>
-          </span>
-          {pending > 0 && <span className="badge">{pending}</span>}
-          <span className="card-link-arrow" aria-hidden>
-            ›
-          </span>
-        </Link>
-
-        <ProfileForm key={user.id} user={user} onSave={saveProfile} />
+        <button type="button" className="btn btn-ghost btn-danger" onClick={() => logout()}>
+          ログアウト
+        </button>
       </div>
     </div>
+  );
+}
+
+export default function ProfilePage() {
+  return (
+    <Suspense fallback={<Loading />}>
+      <ProfileScreen />
+    </Suspense>
   );
 }

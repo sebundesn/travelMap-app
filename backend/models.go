@@ -44,12 +44,14 @@ type Media struct {
 }
 
 type Place struct {
-	ID          int64     `json:"id"`
-	UserID      int64     `json:"-"`
-	Name        string    `json:"name"`
-	Country     string    `json:"country"`
-	CountryCode *string   `json:"countryCode,omitempty"`
-	Region      *string   `json:"region,omitempty"`
+	ID          int64   `json:"id"`
+	UserID      int64   `json:"-"`
+	Name        string  `json:"name"`
+	Country     string  `json:"country"`
+	CountryCode *string `json:"countryCode,omitempty"`
+	Region      *string `json:"region,omitempty"`
+	// Prefecture is the JIS code (1-47) for pins in Japan, 0 elsewhere; derived, never stored.
+	Prefecture  int       `json:"prefecture,omitempty"`
 	Lat         float64   `json:"lat"`
 	Lng         float64   `json:"lng"`
 	VisitedDate *string   `json:"visitedDate,omitempty"`
