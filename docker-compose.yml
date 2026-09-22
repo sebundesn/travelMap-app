@@ -1,0 +1,50 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: travelmap
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-travelmap}
+      POSTGRES_DB: travelmap
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U travelmap -d travelmap"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgres://travelmap:${POSTGRES_PASSWORD:-travelmap}@db:5432/travelmap?sslmode=disable
+      UPLOAD_DIR: /app/uploads
+      PORT: 8080
+      FRONTEND_ORIGIN: http://localhost:3000
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+    volumes:
+      - backend-uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+        NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: ${NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}
+        NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID: ${NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  db-data:
+  backend-uploads:

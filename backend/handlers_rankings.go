@@ -49,15 +49,15 @@ func (s *server) handleRankings(w http.ResponseWriter, r *http.Request) {
 	var query string
 	var args []any
 	if scope == "friends" {
-		query = `SELECT ` + publicUserColumns + `, 1 FROM users u
-			WHERE u.id = ? OR u.id IN (
-				SELECT CASE WHEN f.requester_id = ? THEN f.addressee_id ELSE f.requester_id END
+		query = `SELECT ` + publicUserColumns + `, true FROM users u
+			WHERE u.id = $1 OR u.id IN (
+				SELECT CASE WHEN f.requester_id = $2 THEN f.addressee_id ELSE f.requester_id END
 				FROM friendships f
-				WHERE f.status = 'accepted' AND (f.requester_id = ? OR f.addressee_id = ?))`
+				WHERE f.status = 'accepted' AND (f.requester_id = $3 OR f.addressee_id = $4))`
 		args = []any{userID, userID, userID, userID}
 	} else {
 		query = `SELECT ` + publicUserColumns + `, u.rank_public FROM users u
-			WHERE u.rank_public = 1 OR u.id = ?`
+			WHERE u.rank_public OR u.id = $1`
 		args = []any{userID}
 	}
 
@@ -76,13 +76,13 @@ func (s *server) handleRankings(w http.ResponseWriter, r *http.Request) {
 	var ids []int64
 	for rows.Next() {
 		var c candidate
-		var listed int
+		var listed bool
 		if err := rows.Scan(&c.entry.User.ID, &c.entry.User.Name, &c.entry.User.Handle,
 			&c.entry.User.AvatarURL, &c.entry.User.Bio, &listed); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to read rankings")
 			return
 		}
-		c.listed = listed == 1
+		c.listed = listed
 		c.entry.IsMe = c.entry.User.ID == userID
 		cands = append(cands, c)
 		ids = append(ids, c.entry.User.ID)

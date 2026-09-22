@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"math"
 	"net/http"
 	"sort"
@@ -97,13 +98,15 @@ func (s *server) loadStatPlaces(userIDs []int64) (map[int64][]statPlace, error) 
 		return out, nil
 	}
 	args := make([]any, len(userIDs))
+	placeholders := make([]string, len(userIDs))
 	for i, id := range userIDs {
 		args[i] = id
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
 	}
 	rows, err := s.db.Query(
 		`SELECT user_id, COALESCE(country_code, ''), COALESCE(region, ''), lat, lng,
 		        COALESCE(visited_date, ''), created_at
-		 FROM places WHERE user_id IN (?`+strings.Repeat(",?", len(userIDs)-1)+`)`, args...)
+		 FROM places WHERE user_id IN (`+strings.Join(placeholders, ",")+`)`, args...)
 	if err != nil {
 		return nil, err
 	}

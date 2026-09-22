@@ -36,7 +36,7 @@ func scanPlace(row interface{ Scan(...any) error }, p *Place) error {
 func (s *server) handleListPlaces(w http.ResponseWriter, r *http.Request) {
 	userID := currentUserID(r)
 	rows, err := s.db.Query(
-		`SELECT `+placeColumns+` FROM places WHERE user_id = ? ORDER BY created_at DESC`, userID,
+		`SELECT `+placeColumns+` FROM places WHERE user_id = $1 ORDER BY created_at DESC`, userID,
 	)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load places")
@@ -75,7 +75,7 @@ func (s *server) attachMedia(userID int64, places []Place) error {
 	rows, err := s.db.Query(
 		`SELECT m.place_id, m.url, m.kind FROM place_media m
 		 JOIN places p ON p.id = m.place_id
-		 WHERE p.user_id = ? ORDER BY m.position, m.id`, userID)
+		 WHERE p.user_id = $1 ORDER BY m.position, m.id`, userID)
 	if err != nil {
 		return err
 	}
@@ -118,12 +118,12 @@ func cleanMedia(raw []Media) []Media {
 
 // replaceMedia rewrites a place's album inside the caller's transaction.
 func replaceMedia(tx *sql.Tx, placeID int64, media []Media) error {
-	if _, err := tx.Exec(`DELETE FROM place_media WHERE place_id = ?`, placeID); err != nil {
+	if _, err := tx.Exec(`DELETE FROM place_media WHERE place_id = $1`, placeID); err != nil {
 		return err
 	}
 	for i, m := range media {
 		if _, err := tx.Exec(
-			`INSERT INTO place_media (place_id, url, kind, position) VALUES (?, ?, ?, ?)`,
+			`INSERT INTO place_media (place_id, url, kind, position) VALUES ($1, $2, $3, $4)`,
 			placeID, m.URL, m.Kind, i); err != nil {
 			return err
 		}
@@ -135,7 +135,7 @@ func replaceMedia(tx *sql.Tx, placeID int64, media []Media) error {
 func (s *server) loadPlace(id, userID int64) (Place, error) {
 	var p Place
 	if err := scanPlace(s.db.QueryRow(
-		`SELECT `+placeColumns+` FROM places WHERE id = ? AND user_id = ?`, id, userID), &p); err != nil {
+		`SELECT `+placeColumns+` FROM places WHERE id = $1 AND user_id = $2`, id, userID), &p); err != nil {
 		return p, err
 	}
 	one := []Place{p}
@@ -204,16 +204,16 @@ func (s *server) handleCreatePlace(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	res, err := tx.Exec(
+	var id int64
+	err = tx.QueryRow(
 		`INSERT INTO places (user_id, name, country, country_code, region, lat, lng, visited_date, notes)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
 		userID, req.Name, req.Country, req.CountryCode, req.Region, req.Lat, req.Lng, req.VisitedDate, req.Notes,
-	)
+	).Scan(&id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save place")
 		return
 	}
-	id, _ := res.LastInsertId()
 	if err := replaceMedia(tx, id, req.Media); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save media")
 		return
@@ -251,9 +251,9 @@ func (s *server) handleUpdatePlace(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback()
 
 	res, err := tx.Exec(
-		`UPDATE places SET name = ?, country = ?, country_code = COALESCE(?, country_code),
-		        region = COALESCE(?, region), visited_date = ?, notes = ?
-		 WHERE id = ? AND user_id = ?`,
+		`UPDATE places SET name = $1, country = $2, country_code = COALESCE($3, country_code),
+		        region = COALESCE($4, region), visited_date = $5, notes = $6
+		 WHERE id = $7 AND user_id = $8`,
 		req.Name, req.Country, req.CountryCode, req.Region, req.VisitedDate, req.Notes, id, userID,
 	)
 	if err != nil {
@@ -300,7 +300,7 @@ func (s *server) handleDeletePlace(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	res, err := tx.Exec(`DELETE FROM places WHERE id = ? AND user_id = ?`, id, userID)
+	res, err := tx.Exec(`DELETE FROM places WHERE id = $1 AND user_id = $2`, id, userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete place")
 		return
@@ -309,7 +309,7 @@ func (s *server) handleDeletePlace(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "place not found")
 		return
 	}
-	if _, err := tx.Exec(`DELETE FROM place_media WHERE place_id = ?`, id); err != nil {
+	if _, err := tx.Exec(`DELETE FROM place_media WHERE place_id = $1`, id); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete place")
 		return
 	}

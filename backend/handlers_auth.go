@@ -3,9 +3,15 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
+
+// pgUniqueViolation is Postgres's SQLSTATE for a unique constraint conflict.
+const pgUniqueViolation = "23505"
 
 type registerRequest struct {
 	Email    string `json:"email"`
@@ -47,19 +53,20 @@ func (s *server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := s.db.Exec(
-		`INSERT INTO users (email, password_hash, name, handle) VALUES (?, ?, ?, ?)`,
+	var userID int64
+	err = s.db.QueryRow(
+		`INSERT INTO users (email, password_hash, name, handle) VALUES ($1, $2, $3, $4) RETURNING id`,
 		req.Email, hash, req.Name, handle,
-	)
+	).Scan(&userID)
 	if err != nil {
-		if strings.Contains(err.Error(), "UNIQUE") {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation {
 			writeError(w, http.StatusConflict, "an account with that email already exists")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to create account")
 		return
 	}
-	userID, _ := res.LastInsertId()
 
 	if err := s.issueSession(w, userID); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to start session")
@@ -83,7 +90,7 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	var u User
 	err := s.db.QueryRow(
-		`SELECT id, email, name, handle, avatar_url, bio, password_hash FROM users WHERE email = ?`, req.Email,
+		`SELECT id, email, name, handle, avatar_url, bio, password_hash FROM users WHERE email = $1`, req.Email,
 	).Scan(&u.ID, &u.Email, &u.Name, &u.Handle, &u.AvatarURL, &u.Bio, &u.PasswordHash)
 	if err == sql.ErrNoRows || (err == nil && !checkPassword(u.PasswordHash, req.Password)) {
 		writeError(w, http.StatusUnauthorized, "invalid email or password")

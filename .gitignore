@@ -1,1 +1,5 @@
 backend/uploads/
+backend/travelmap.db
+backend/travelmap.db-journal
+backend/travelmap-backend
+.env

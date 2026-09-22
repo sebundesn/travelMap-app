@@ -17,7 +17,7 @@ func scanPublicUser(row interface{ Scan(...any) error }, u *PublicUser) error {
 func (s *server) loadUser(id int64) (User, error) {
 	var u User
 	err := s.db.QueryRow(
-		`SELECT id, email, name, handle, avatar_url, bio, rank_public, created_at FROM users WHERE id = ?`, id,
+		`SELECT id, email, name, handle, avatar_url, bio, rank_public, created_at FROM users WHERE id = $1`, id,
 	).Scan(&u.ID, &u.Email, &u.Name, &u.Handle, &u.AvatarURL, &u.Bio, &u.RankPublic, &u.CreatedAt)
 	return u, err
 }
@@ -54,7 +54,7 @@ func (s *server) handleUpdateMe(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "名前を入力してください")
 			return
 		}
-		if _, err := s.db.Exec(`UPDATE users SET name = ? WHERE id = ?`, name, userID); err != nil {
+		if _, err := s.db.Exec(`UPDATE users SET name = $1 WHERE id = $2`, name, userID); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to update profile")
 			return
 		}
@@ -75,7 +75,7 @@ func (s *server) handleUpdateMe(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, "このIDはすでに使われています")
 			return
 		}
-		if _, err := s.db.Exec(`UPDATE users SET handle = ? WHERE id = ?`, handle, userID); err != nil {
+		if _, err := s.db.Exec(`UPDATE users SET handle = $1 WHERE id = $2`, handle, userID); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to update profile")
 			return
 		}
@@ -83,7 +83,7 @@ func (s *server) handleUpdateMe(w http.ResponseWriter, r *http.Request) {
 
 	if req.AvatarURL != nil {
 		avatar := strings.TrimSpace(*req.AvatarURL)
-		if _, err := s.db.Exec(`UPDATE users SET avatar_url = ? WHERE id = ?`, nullable(avatar), userID); err != nil {
+		if _, err := s.db.Exec(`UPDATE users SET avatar_url = $1 WHERE id = $2`, nullable(avatar), userID); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to update profile")
 			return
 		}
@@ -95,14 +95,14 @@ func (s *server) handleUpdateMe(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "ひとことは140文字までです")
 			return
 		}
-		if _, err := s.db.Exec(`UPDATE users SET bio = ? WHERE id = ?`, nullable(bio), userID); err != nil {
+		if _, err := s.db.Exec(`UPDATE users SET bio = $1 WHERE id = $2`, nullable(bio), userID); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to update profile")
 			return
 		}
 	}
 
 	if req.RankPublic != nil {
-		if _, err := s.db.Exec(`UPDATE users SET rank_public = ? WHERE id = ?`, *req.RankPublic, userID); err != nil {
+		if _, err := s.db.Exec(`UPDATE users SET rank_public = $1 WHERE id = $2`, *req.RankPublic, userID); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to update profile")
 			return
 		}
@@ -127,7 +127,7 @@ func (s *server) handleLookupUser(w http.ResponseWriter, r *http.Request) {
 
 	var u PublicUser
 	err := scanPublicUser(s.db.QueryRow(
-		`SELECT `+publicUserColumns+` FROM users u WHERE u.handle = ?`, handle,
+		`SELECT `+publicUserColumns+` FROM users u WHERE u.handle = $1`, handle,
 	), &u)
 	if err == sql.ErrNoRows {
 		writeError(w, http.StatusNotFound, "そのIDのユーザーは見つかりませんでした")
@@ -145,7 +145,7 @@ func (s *server) handleLookupUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var spots int
-	_ = s.db.QueryRow(`SELECT COUNT(*) FROM places WHERE user_id = ?`, u.ID).Scan(&spots)
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM places WHERE user_id = $1`, u.ID).Scan(&spots)
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"user":      u,

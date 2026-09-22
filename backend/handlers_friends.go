@@ -25,7 +25,7 @@ func (s *server) relationTo(me, other int64) (string, *int64, error) {
 	var status string
 	err := s.db.QueryRow(
 		`SELECT id, requester_id, status FROM friendships
-		 WHERE (requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?)`,
+		 WHERE (requester_id = $1 AND addressee_id = $2) OR (requester_id = $3 AND addressee_id = $4)`,
 		me, other, other, me,
 	).Scan(&id, &requester, &status)
 	if err == sql.ErrNoRows {
@@ -49,9 +49,9 @@ func (s *server) handleListFriends(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.db.Query(
 		`SELECT `+publicUserColumns+`, (SELECT COUNT(*) FROM places p WHERE p.user_id = u.id)
 		 FROM friendships f
-		 JOIN users u ON u.id = CASE WHEN f.requester_id = ? THEN f.addressee_id ELSE f.requester_id END
-		 WHERE f.status = 'accepted' AND (f.requester_id = ? OR f.addressee_id = ?)
-		 ORDER BY u.name COLLATE NOCASE`,
+		 JOIN users u ON u.id = CASE WHEN f.requester_id = $1 THEN f.addressee_id ELSE f.requester_id END
+		 WHERE f.status = 'accepted' AND (f.requester_id = $2 OR f.addressee_id = $3)
+		 ORDER BY LOWER(u.name)`,
 		userID, userID, userID,
 	)
 	if err != nil {
@@ -102,7 +102,7 @@ func (s *server) handleListFriendRequests(w http.ResponseWriter, r *http.Request
 	incoming, err := s.queryRequests(
 		`SELECT f.id, f.created_at, `+publicUserColumns+`
 		 FROM friendships f JOIN users u ON u.id = f.requester_id
-		 WHERE f.addressee_id = ? AND f.status = 'pending'
+		 WHERE f.addressee_id = $1 AND f.status = 'pending'
 		 ORDER BY f.created_at DESC`, userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load requests")
@@ -112,7 +112,7 @@ func (s *server) handleListFriendRequests(w http.ResponseWriter, r *http.Request
 	outgoing, err := s.queryRequests(
 		`SELECT f.id, f.created_at, `+publicUserColumns+`
 		 FROM friendships f JOIN users u ON u.id = f.addressee_id
-		 WHERE f.requester_id = ? AND f.status = 'pending'
+		 WHERE f.requester_id = $1 AND f.status = 'pending'
 		 ORDER BY f.created_at DESC`, userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load requests")
@@ -143,10 +143,10 @@ func (s *server) handleCreateFriendRequest(w http.ResponseWriter, r *http.Reques
 	var err error
 	if handle := normalizeHandle(body.Handle); handle != "" {
 		err = scanPublicUser(s.db.QueryRow(
-			`SELECT `+publicUserColumns+` FROM users u WHERE u.handle = ?`, handle), &target)
+			`SELECT `+publicUserColumns+` FROM users u WHERE u.handle = $1`, handle), &target)
 	} else if body.UserID > 0 {
 		err = scanPublicUser(s.db.QueryRow(
-			`SELECT `+publicUserColumns+` FROM users u WHERE u.id = ?`, body.UserID), &target)
+			`SELECT `+publicUserColumns+` FROM users u WHERE u.id = $1`, body.UserID), &target)
 	} else {
 		writeError(w, http.StatusBadRequest, "IDを入力してください")
 		return
@@ -178,7 +178,7 @@ func (s *server) handleCreateFriendRequest(w http.ResponseWriter, r *http.Reques
 	case relationIncoming:
 		// They asked first: taking the same action from this side just confirms it.
 		if _, err := s.db.Exec(
-			`UPDATE friendships SET status = 'accepted', responded_at = CURRENT_TIMESTAMP WHERE id = ?`,
+			`UPDATE friendships SET status = 'accepted', responded_at = CURRENT_TIMESTAMP WHERE id = $1`,
 			*requestID,
 		); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to accept request")
@@ -189,7 +189,7 @@ func (s *server) handleCreateFriendRequest(w http.ResponseWriter, r *http.Reques
 	}
 
 	if _, err := s.db.Exec(
-		`INSERT INTO friendships (requester_id, addressee_id, status) VALUES (?, ?, 'pending')`,
+		`INSERT INTO friendships (requester_id, addressee_id, status) VALUES ($1, $2, 'pending')`,
 		userID, target.ID,
 	); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to send request")
@@ -209,7 +209,7 @@ func (s *server) handleAcceptFriendRequest(w http.ResponseWriter, r *http.Reques
 
 	res, err := s.db.Exec(
 		`UPDATE friendships SET status = 'accepted', responded_at = CURRENT_TIMESTAMP
-		 WHERE id = ? AND addressee_id = ? AND status = 'pending'`, id, userID)
+		 WHERE id = $1 AND addressee_id = $2 AND status = 'pending'`, id, userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to accept request")
 		return
@@ -232,7 +232,7 @@ func (s *server) handleDeleteFriendRequest(w http.ResponseWriter, r *http.Reques
 
 	res, err := s.db.Exec(
 		`DELETE FROM friendships
-		 WHERE id = ? AND status = 'pending' AND (addressee_id = ? OR requester_id = ?)`,
+		 WHERE id = $1 AND status = 'pending' AND (addressee_id = $2 OR requester_id = $3)`,
 		id, userID, userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update request")
@@ -256,7 +256,7 @@ func (s *server) handleRemoveFriend(w http.ResponseWriter, r *http.Request) {
 
 	res, err := s.db.Exec(
 		`DELETE FROM friendships
-		 WHERE (requester_id = ? AND addressee_id = ?) OR (requester_id = ? AND addressee_id = ?)`,
+		 WHERE (requester_id = $1 AND addressee_id = $2) OR (requester_id = $3 AND addressee_id = $4)`,
 		userID, id, id, userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to remove friend")

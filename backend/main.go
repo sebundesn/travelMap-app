@@ -15,13 +15,13 @@ type server struct {
 }
 
 func main() {
-	dbPath := getenv("DB_PATH", "./travelmap.db")
+	dbURL := getenv("DATABASE_URL", "postgres://travelmap:travelmap@localhost:5432/travelmap?sslmode=disable")
 	port := getenv("PORT", "8080")
 	origin := getenv("FRONTEND_ORIGIN", "http://localhost:3000")
 	secret := getenv("JWT_SECRET", "dev-secret-change-me")
 	uploadDir := getenv("UPLOAD_DIR", "./uploads")
 
-	db, err := openDB(dbPath)
+	db, err := openDB(dbURL)
 	if err != nil {
 		log.Fatalf("failed to open database: %v", err)
 	}

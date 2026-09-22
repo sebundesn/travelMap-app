@@ -40,7 +40,7 @@ func randomSuffix(n int) (string, error) {
 
 func handleTaken(db *sql.DB, handle string, exceptUserID int64) (bool, error) {
 	var id int64
-	err := db.QueryRow(`SELECT id FROM users WHERE handle = ?`, handle).Scan(&id)
+	err := db.QueryRow(`SELECT id FROM users WHERE handle = $1`, handle).Scan(&id)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}

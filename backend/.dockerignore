@@ -1,0 +1,8 @@
+travelmap-backend
+travelmap.db
+uploads/
+*.db
+*.db-journal
+.git
+.gitignore
+*_test.go

@@ -3,18 +3,15 @@ package main
 import (
 	"database/sql"
 
-	_ "modernc.org/sqlite"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-func openDB(path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", path)
+func openDB(connString string) (*sql.DB, error) {
+	db, err := sql.Open("pgx", connString)
 	if err != nil {
 		return nil, err
 	}
 	if err := db.Ping(); err != nil {
-		return nil, err
-	}
-	if _, err := db.Exec(`PRAGMA foreign_keys = ON;`); err != nil {
 		return nil, err
 	}
 	if err := migrate(db); err != nil {
@@ -26,31 +23,31 @@ func openDB(path string) (*sql.DB, error) {
 func migrate(db *sql.DB) error {
 	_, err := db.Exec(`
 	CREATE TABLE IF NOT EXISTS users (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		id BIGSERIAL PRIMARY KEY,
 		email TEXT UNIQUE NOT NULL,
 		password_hash TEXT NOT NULL,
 		name TEXT NOT NULL,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 	);
 
 	CREATE TABLE IF NOT EXISTS places (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		id BIGSERIAL PRIMARY KEY,
+		user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		name TEXT NOT NULL,
 		country TEXT NOT NULL,
-		lat REAL NOT NULL,
-		lng REAL NOT NULL,
+		lat DOUBLE PRECISION NOT NULL,
+		lng DOUBLE PRECISION NOT NULL,
 		visited_date TEXT,
 		notes TEXT,
 		image_url TEXT,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_places_user_id ON places(user_id);
 
 	CREATE TABLE IF NOT EXISTS place_media (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		place_id INTEGER NOT NULL REFERENCES places(id) ON DELETE CASCADE,
+		id BIGSERIAL PRIMARY KEY,
+		place_id BIGINT NOT NULL REFERENCES places(id) ON DELETE CASCADE,
 		url TEXT NOT NULL,
 		kind TEXT NOT NULL,
 		position INTEGER NOT NULL DEFAULT 0
@@ -59,12 +56,12 @@ func migrate(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_place_media_place ON place_media(place_id, position);
 
 	CREATE TABLE IF NOT EXISTS friendships (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		requester_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-		addressee_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		id BIGSERIAL PRIMARY KEY,
+		requester_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		addressee_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		status TEXT NOT NULL DEFAULT 'pending',
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-		responded_at DATETIME
+		created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+		responded_at TIMESTAMPTZ
 	);
 
 	CREATE UNIQUE INDEX IF NOT EXISTS idx_friendships_pair ON friendships(requester_id, addressee_id);
@@ -81,7 +78,7 @@ func migrate(db *sql.DB) error {
 			return err
 		}
 	}
-	if err := addColumnIfMissing(db, "users", "rank_public", "INTEGER NOT NULL DEFAULT 1"); err != nil {
+	if err := addColumnIfMissing(db, "users", "rank_public", "BOOLEAN NOT NULL DEFAULT true"); err != nil {
 		return err
 	}
 	for _, column := range []string{"handle", "avatar_url", "bio"} {
@@ -147,7 +144,7 @@ func backfillHandles(db *sql.DB) error {
 		if err != nil {
 			return err
 		}
-		if _, err := db.Exec(`UPDATE users SET handle = ? WHERE id = ?`, handle, p.id); err != nil {
+		if _, err := db.Exec(`UPDATE users SET handle = $1 WHERE id = $2`, handle, p.id); err != nil {
 			return err
 		}
 	}
@@ -156,23 +153,6 @@ func backfillHandles(db *sql.DB) error {
 
 // addColumnIfMissing keeps databases created before a column existed usable.
 func addColumnIfMissing(db *sql.DB, table, column, decl string) error {
-	rows, err := db.Query(`SELECT name FROM pragma_table_info(?)`, table)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			return err
-		}
-		if name == column {
-			return nil
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	_, err = db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + decl)
+	_, err := db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN IF NOT EXISTS ` + column + ` ` + decl)
 	return err
 }
